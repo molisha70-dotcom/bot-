@@ -1,4 +1,4 @@
-import os, pytz, yaml, hashlib
+import os, pytz, yaml, hashlib, threading
 from collections import deque
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
@@ -74,5 +74,26 @@ async def on_ready():
     await tree.sync()
     print(f"✅ Logged in as {bot.user}")
 
-if __name__=="__main__":
+# --- Flask keepalive for Render Web Service ---
+try:
+    from flask import Flask, jsonify
+except Exception as e:
+    print("Flask not installed. Add Flask to requirements.txt if deploying to Render.")
+    Flask = None
+
+def run_keepalive():
+    if Flask is None:
+        print("Flask not available, skipping keepalive server.")
+        return
+    app = Flask("keepalive")
+    @app.get("/")
+    def root():
+        return jsonify(status="ok"), 200
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
+
+if __name__ == "__main__":
+    threading.Thread(target=run_keepalive, daemon=True).start()
+    if not TOKEN:
+        raise SystemExit("DISCORD_TOKEN を環境変数に設定してください。")
     bot.run(TOKEN)
