@@ -4,6 +4,7 @@ from collections import deque
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import discord
+discord.opus = None
 from discord.ext import commands
 from discord import app_commands
 
