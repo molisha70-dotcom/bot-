@@ -1,24 +1,39 @@
-# Discord Announcer Bot (Final User Version)
 
-このBotは Discord サーバー内で「📢や【告知】を含む投稿」を自動的に
-**監視元チャンネル → 転移先チャンネル** にミラーする完全自動Botです。
+# Discord Announcer (Classic Split)
 
-## 設定（この構成）
+前の経済Botと同じように、**bot本体**と**起動スクリプト**を分割した構成です。  
+Render の Web Service で動かすための **Flask keepalive** も main.py に同梱。
 
-| 項目 | 設定値 |
-|------|---------|
-| Guild ID | 1046742748641894441 |
-| 監視元 | 1430892332873551872 |
-| 転移先 | 1430898031770861672 |
+## 構成
+```
+discord-announcer-classic/
+├── bot.py              # Bot本体：イベント処理／自動転移／スラッシュコマンド
+├── main.py             # 起動スクリプト：Flask keepalive + run_bot()
+├── config.yaml         # 転移条件・テンプレ
+├── requirements.txt    # 依存
+├── .env.example        # トークン設定サンプル
+└── README.md
+```
 
-## 使い方
+## 固定ID
+- Guild: 1046742748641894441
+- 監視元: 1430892332873551872
+- 転移先: 1430898031770861672
 
-1. `.env` に Discord Bot のトークンを設定
-2. Bot に「メッセージ内容の意図」(Message Content Intent) を有効化
-3. 権限：送信、埋め込みリンク、履歴閲覧、閲覧
-4. `pip install -r requirements.txt` → `python main.py` で起動
-5. 監視元チャンネルに「📢」「【告知】」「開催」などを含む投稿をすると転移先に自動ミラーされます
+## ローカル実行
+```bash
+pip install -r requirements.txt
+cp .env.example .env  # DISCORD_TOKEN を設定
+python main.py
+```
 
-## デプロイ
+## Render (Web Service) デプロイ
+- Build Command: `pip install -r requirements.txt`
+- Start Command: `python main.py`
+- 環境変数:
+  - `DISCORD_TOKEN` （必須）
+  - `TZ=Asia/Tokyo`
 
-Render で GitHub Blueprint としてデプロイ可（render.yaml 同梱）。
+## 注意
+- Discord Developer Portal で **MESSAGE CONTENT INTENT** をONにしてください。
+- 権限: 読み取り／履歴閲覧／送信／埋め込みリンク（監視元・転移先ともに）。
