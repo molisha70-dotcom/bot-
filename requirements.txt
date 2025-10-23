@@ -4,4 +4,3 @@ python-dotenv==1.0.1
 PyYAML==6.0.2
 pytz==2024.1
 Flask==2.3.3
-audioop-lts
