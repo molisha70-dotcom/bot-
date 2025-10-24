@@ -1,11 +1,12 @@
 
 import os, pytz, yaml, hashlib
-from collections import deque
+from collections import deque, defaultdict
+from typing import Dict, List, Tuple
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import discord
 discord.opus = None
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord import app_commands
 
 load_dotenv()
@@ -31,6 +32,12 @@ async def setup_hook():
     """Ensure application commands are registered."""
     await bot.tree.sync()
 
+SUMMARY_INTERVAL_MINUTES = int(os.getenv("SUMMARY_INTERVAL_MINUTES", "10"))
+
+PendingKey = Tuple[int, int]
+PendingEntry = Dict[str, str]
+PENDING_MESSAGES: Dict[PendingKey, List[PendingEntry]] = defaultdict(list)
+
 # ------- 掲示板埋め込み生成 -------
 async def mirror_message(msg: discord.Message, to_ch: discord.abc.Messageable):
     embed = discord.Embed(
@@ -49,6 +56,91 @@ async def mirror_message(msg: discord.Message, to_ch: discord.abc.Messageable):
         if a.content_type and a.content_type.startswith("image/"):
             embed.set_image(url=a.url)
     await to_ch.send(embed=embed)
+
+def queue_pending_message(message: discord.Message, to_channel_id: int, rule_name: str):
+    content = (message.content or "").strip()
+    snippet = content[:180] + ("…" if len(content) > 180 else "")
+    image_url = None
+    for attachment in message.attachments:
+        if attachment.content_type and attachment.content_type.startswith("image/"):
+            image_url = attachment.url
+            break
+
+    entry: PendingEntry = {
+        "author": message.author.mention,
+        "channel": message.channel.mention,
+        "jump_url": message.jump_url,
+        "snippet": snippet or "（本文なし）",
+        "rule": rule_name,
+    }
+    if image_url:
+        entry["image_url"] = image_url
+
+    key = (message.guild.id, to_channel_id)
+    PENDING_MESSAGES[key].append(entry)
+
+
+def build_summary_embed(entries: List[PendingEntry]) -> discord.Embed:
+    title = "📬 まとめ転送"
+    first_rule = entries[0].get("rule", "")
+    if first_rule:
+        title += f"｜{first_rule}"
+
+    embed = discord.Embed(
+        title=title,
+        description="",
+        color=0x2F3136,
+    )
+
+    lines = []
+    image_url = None
+    for entry in entries:
+        line = (
+            f"• {entry['author']} （{entry['channel']}）\n"
+            f"{entry['snippet']}\n"
+            f"[ジャンプリンク]({entry['jump_url']})"
+        )
+        lines.append(line)
+        if not image_url and entry.get("image_url"):
+            image_url = entry["image_url"]
+
+    description = "\n\n".join(lines)
+    if len(description) > 4000:
+        description = description[:3997] + "…"
+
+    embed.description = description
+
+    now = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
+    embed.set_footer(text=f"まとめ投稿｜{now} {TZ}")
+
+    if image_url:
+        embed.set_image(url=image_url)
+
+    return embed
+
+
+@tasks.loop(minutes=SUMMARY_INTERVAL_MINUTES)
+async def flush_pending_messages():
+    if not PENDING_MESSAGES:
+        return
+
+    for key, entries in list(PENDING_MESSAGES.items()):
+        if not entries:
+            continue
+
+        _, to_channel_id = key
+        channel = bot.get_channel(to_channel_id)
+        if not channel:
+            PENDING_MESSAGES.pop(key, None)
+            continue
+
+        embed = build_summary_embed(entries)
+        try:
+            await channel.send(embed=embed)
+        except discord.HTTPException as exc:
+            print(f"Failed to send summary to {to_channel_id}: {exc}")
+        finally:
+            PENDING_MESSAGES.pop(key, None)
 
 # ------- デュープ防止 -------
 DEDUP_CACHE = deque(maxlen=500)  # (guild_id, channel_id, hash, ts)
@@ -105,9 +197,8 @@ async def on_message(message: discord.Message):
         if recent_seen(message.guild.id, message.channel.id, h, window_minutes=window):
             continue
 
-        to_ch = bot.get_channel(int(rule["to_channel_id"]))
-        if to_ch:
-            await mirror_message(message, to_ch)
+        to_ch_id = int(rule["to_channel_id"])
+        queue_pending_message(message, to_ch_id, rule.get("name", ""))
         break
 
     await bot.process_commands(message)
@@ -117,6 +208,8 @@ async def on_ready():
     if not getattr(bot, "_synced", False):
         await bot.tree.sync()
         bot._synced = True
+    if not flush_pending_messages.is_running():
+        flush_pending_messages.start()
     print(f"Bot logged in as {bot.user} ({bot.user.id})")
 
 # ------- 便利コマンド -------
