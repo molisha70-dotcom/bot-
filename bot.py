@@ -130,9 +130,21 @@ async def flush_pending_messages():
 
         _, to_channel_id = key
         channel = bot.get_channel(to_channel_id)
-        if not channel:
-            PENDING_MESSAGES.pop(key, None)
-            continue
+        if channel is None:
+            try:
+                channel = await bot.fetch_channel(to_channel_id)
+            except discord.NotFound:
+                print(f"Summary target channel {to_channel_id} was not found. Discarding queued entries.")
+                PENDING_MESSAGES.pop(key, None)
+                continue
+            except discord.Forbidden:
+                print(f"Missing permissions to access summary target channel {to_channel_id}. Discarding queued entries.")
+                PENDING_MESSAGES.pop(key, None)
+                continue
+            except discord.HTTPException as exc:
+                # Keep the entries so we can retry on the next loop iteration.
+                print(f"Failed to fetch summary target channel {to_channel_id}: {exc}")
+                continue
 
         embed = build_summary_embed(entries)
         try:
