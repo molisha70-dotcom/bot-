@@ -26,6 +26,12 @@ def load_config():
 
 CFG = load_config()
 
+
+@bot.event
+async def setup_hook():
+    """Ensure application commands are registered."""
+    await bot.tree.sync()
+
 # ------- 掲示板埋め込み生成 -------
 async def mirror_message(msg: discord.Message, to_ch: discord.abc.Messageable):
     embed = discord.Embed(
@@ -73,7 +79,7 @@ async def on_message(message: discord.Message):
 
     content = message.content or ""
 
-    for rule in CFG.get("rules", []):
+    for rule in cfg.get("rules", []):
         if message.channel.id not in rule.get("from_channel_ids", []):
             continue
 
@@ -156,10 +162,4 @@ def run_bot():
     if not TOKEN:
         raise SystemExit("DISCORD_TOKEN が未設定です。.env か Render の環境変数で設定してください。")
 
-    async def _runner():
-        await bot.login(TOKEN)
-        await bot.tree.sync()
-        await bot.connect(reconnect=True)
-
-    import asyncio
-    asyncio.run(_runner())
+    bot.run(TOKEN)
