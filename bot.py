@@ -26,6 +26,11 @@ def load_config():
 
 CFG = load_config()
 
+@bot.event
+async def setup_hook():
+    """Ensure application commands are registered."""
+    await bot.tree.sync()
+
 # ------- 掲示板埋め込み生成 -------
 async def mirror_message(msg: discord.Message, to_ch: discord.abc.Messageable):
     embed = discord.Embed(
@@ -73,7 +78,7 @@ async def on_message(message: discord.Message):
 
     content = message.content or ""
 
-    for rule in CFG.get("rules", []):
+    for rule in cfg.get("rules", []):
         if message.channel.id not in rule.get("from_channel_ids", []):
             continue
 
@@ -93,8 +98,10 @@ async def on_message(message: discord.Message):
             continue
 
         # 重複防止
-        h = short_hash(content, n=int(cfg.get("dedup", {}).get("hash_length", 2000)))
-        window = int(cfg.get("dedup", {}).get("window_minutes", 120))
+        dedup_cfg = cfg.get("dedup") or CFG.get("dedup", {})
+        hash_len = int(dedup_cfg.get("hash_length", 2000))
+        window = int(dedup_cfg.get("window_minutes", 120))
+        h = short_hash(content, n=hash_len)
         if recent_seen(message.guild.id, message.channel.id, h, window_minutes=window):
             continue
 
@@ -104,6 +111,13 @@ async def on_message(message: discord.Message):
         break
 
     await bot.process_commands(message)
+
+@bot.event
+async def on_ready():
+    if not getattr(bot, "_synced", False):
+        await bot.tree.sync()
+        bot._synced = True
+    print(f"Bot logged in as {bot.user} ({bot.user.id})")
 
 # ------- 便利コマンド -------
 @tree.command(name="reload_config", description="config.yaml を再読み込みします")
